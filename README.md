@@ -54,4 +54,19 @@ A Streamlit app for converting PayPal cash sales reports into a QuickBooks Onlin
 
 If the app shows an error, check the deployment logs for missing dependencies and confirm `requirements.txt` includes `streamlit`, `pandas`, and `openpyxl`.
 
+## Testing
+
+- A unit test module is available at `tests/test_qbo_cash_import.py`
+- Run tests locally with:
+
+  ```bash
+  pytest -q tests/test_qbo_cash_import.py
+  ```
+- `requirements.txt` also includes `pytest` for local test execution
+
+## Theme and deployment notes
+
+- The app theme is configured in `.streamlit/config.toml` to match the short.io branding from `go.jcfcboosters.org`
+- The app entrypoint is `QBO-cash-import.py`, which is the file used both locally and for Streamlit Cloud
+
 
