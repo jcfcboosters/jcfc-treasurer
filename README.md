@@ -1,19 +1,41 @@
-# 🎈 Blank app template
+# QBO Cash Import Streamlit App
 
-A simple Streamlit app template for you to modify!
+A Streamlit app for converting PayPal cash sales reports into a QuickBooks Online import CSV.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://blank-app-template.streamlit.app/)
+## What this app does
 
-### How to run it on your own machine
+- Accepts PayPal "POS Raw Data" and "POS Receipts" Excel reports via file upload
+- Filters cash payments from the receipts report
+- Merges cash receipts with itemized sales lines
+- Builds a QuickBooks Online import-ready CSV
+- Provides a download button for the generated CSV
 
-1. Install the requirements
+## How to run locally
 
+1. Install requirements
+
+   ```bash
+   pip install -r requirements.txt
    ```
-   $ pip install -r requirements.txt
+
+2. Start the app
+
+   ```bash
+   streamlit run QBO-cash-import.py
    ```
 
-2. Run the app
+3. Open the local Streamlit URL shown in the terminal
 
-   ```
-   $ streamlit run streamlit_app.py
-   ```
+## Supported file format
+
+- Upload `.xlsx` files only
+- Expected report names are:
+  - "PayPal-POS-Raw-Data-Report-START-END.xlsx"
+  - "PayPal-POS-Receipts-Report-START-END.xlsx"
+- The app reads Excel contents with `openpyxl`
+- Output file in CSV format required by QuickBooks Online (QBO)
+
+## Notes
+
+
+
