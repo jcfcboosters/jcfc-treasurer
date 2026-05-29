@@ -1,0 +1,15 @@
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+
+[theme]
+base = "light"
+primaryColor = "#0A874E"
+backgroundColor = "#F7F8FB"
+secondaryBackgroundColor = "#1FB07E"
+textColor = "#11181C"
+font = "sans serif"
+
+[global]
+email = ""

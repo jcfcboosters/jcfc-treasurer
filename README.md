@@ -37,5 +37,21 @@ A Streamlit app for converting PayPal cash sales reports into a QuickBooks Onlin
 
 ## Notes
 
+- The app now runs directly from `QBO-cash-import.py`
+- `streamlit_app.py` is no longer used
+- `./.streamlit/config.toml` is included to configure Streamlit for deployment
+- The app theme now matches the JCFC Boosters short.io branding from `go.jcfcboosters.org`
+- If you plan to deploy on Streamlit Cloud, the same file is the app entrypoint
+
+## Deploying to Streamlit Community Cloud
+
+1. Go to https://streamlit.io/cloud and sign in with GitHub.
+2. Create a new app.
+3. Select repo: `jcfcboosters/jcfc-treasurer`.
+4. Choose branch: `main`.
+5. Set the main file path to: `QBO-cash-import.py`.
+6. Deploy and use the generated public URL.
+
+If the app shows an error, check the deployment logs for missing dependencies and confirm `requirements.txt` includes `streamlit`, `pandas`, and `openpyxl`.
 
 

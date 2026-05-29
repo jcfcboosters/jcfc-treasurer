@@ -7,11 +7,22 @@ import streamlit as st
 st.set_page_config(page_title="PayPal Cash to QuickBooks", layout="wide")
 
 
+def safe_read_excel(source, skiprows):
+    try:
+        df = pd.read_excel(source, skiprows=skiprows, engine="openpyxl")
+    except ImportError as exc:
+        raise ImportError(
+            "The 'openpyxl' package is required to read .xlsx files. "
+            "Install it with `pip install openpyxl` or add it to requirements.txt."
+        ) from exc
+    return df
+
+
 def parse_reports(itemized_source, receipts_source):
-    items_df = pd.read_excel(itemized_source, skiprows=6)
+    items_df = safe_read_excel(itemized_source, skiprows=6)
     items_df.columns = items_df.columns.str.strip()
 
-    receipts_df = pd.read_excel(receipts_source, skiprows=16)
+    receipts_df = safe_read_excel(receipts_source, skiprows=16)
     receipts_df.columns = receipts_df.columns.str.strip()
 
     return items_df, receipts_df
@@ -121,6 +132,8 @@ def run_streamlit_app():
             st.dataframe(qbo_df.head(20))
             st.info("The generated CSV is ready for QuickBooks Online Advanced Batch Import.")
 
+        except ImportError as exc:
+            st.error(str(exc))
         except Exception as exc:
             st.error(f"An unexpected processing error occurred: {exc}")
 
