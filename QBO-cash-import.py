@@ -12,8 +12,14 @@ and formats them perfectly for QuickBooks Online Advanced Batch Import.
 pd_stream.markdown("---")
 
 pd_stream.subheader("Step 1: Upload PayPal Excel Exports")
-itemized_file = pd_stream.file_uploader("Upload 'PayPal-POS-Raw-Data-Report' (.xlsx)", type=["xlsx"])
-receipts_file = pd_stream.file_uploader("Upload 'PayPal-POS-Receipts-Report' (.xlsx)", type=["xlsx"])
+itemized_file = pd_stream.file_uploader("Upload 'PayPal-POS-Raw-Data-Report' (.xlsx)", type=["xlsx"], key="itemized_file")
+receipts_file = pd_stream.file_uploader("Upload 'PayPal-POS-Receipts-Report' (.xlsx)", type=["xlsx"], key="receipts_file")
+reference_file = pd_stream.file_uploader(
+    "Upload optional reference Excel file for SKU mapping",
+    type=["xls", "xlsx"],
+    key="reference_file",
+    help="The reference file should contain a QBO Products/Services export with SKU and optional Product/Service Name columns."
+)
 receipt_prefix = int(pd_stream.number_input(
     "Receipt prefix start",
     min_value=0,
@@ -81,6 +87,80 @@ def find_column(df, candidates):
     return None
 
 
+def load_reference_file(uploaded_file):
+    """
+    Load an Excel reference mapping file and normalize its column headers.
+    """
+    reference_df = pd.read_excel(uploaded_file)
+    return standardize_dataframe_columns(reference_df)
+
+
+def build_reference_map(reference_df):
+    """
+    Build a mapping from a reference SKU to target SKU/Product-Service values.
+    """
+    lookup_sku_col = find_column(reference_df, [
+        'sku', 'item number', 'item code', 'product code'
+    ])
+
+    if lookup_sku_col is None:
+        raise ValueError(
+            "The reference file must include a SKU column such as 'SKU', 'Item Number', 'Item Code', or 'Product Code'."
+        )
+
+    mapped_sku_col = find_column(reference_df, [
+        'mapped sku', 'qbo sku', 'product code', 'item number', 'item code', 'sku'
+    ])
+    mapped_product_col = find_column(reference_df, [
+        'product/service name', 'product/service', 'product service', 'product_service',
+        'name', 'item name', 'description'
+    ])
+
+    mapping = {}
+    for _, row in reference_df.iterrows():
+        sku_key = str(row[lookup_sku_col]).strip().lower()
+        if not sku_key or sku_key == 'nan':
+            continue
+
+        if mapped_sku_col is not None and mapped_sku_col != lookup_sku_col:
+            mapped_sku = str(row[mapped_sku_col]).strip()
+        else:
+            mapped_sku = str(row[lookup_sku_col]).strip()
+
+        if mapped_product_col is not None and mapped_product_col != lookup_sku_col:
+            mapped_product = str(row[mapped_product_col]).strip()
+        else:
+            mapped_product = mapped_sku
+
+        if not mapped_sku:
+            mapped_sku = mapped_product
+        if not mapped_product:
+            mapped_product = mapped_sku
+
+        mapping[sku_key] = {
+            'sku': mapped_sku,
+            'product_service': mapped_product,
+        }
+
+    return mapping
+
+
+def apply_reference_mapping(merged_df, reference_map, sku_col):
+    """
+    Add mapped output columns to the merged dataframe using SKU-only reference lookup.
+    """
+    merged_df = merged_df.copy()
+    merged_df['reference_lookup_key'] = merged_df[sku_col].astype(str).str.strip().str.lower()
+
+    merged_df['mapped_sku'] = merged_df['reference_lookup_key'].map(
+        lambda key: reference_map.get(key, {}).get('sku')
+    )
+    merged_df['mapped_product_service'] = merged_df['reference_lookup_key'].map(
+        lambda key: reference_map.get(key, {}).get('product_service')
+    )
+    return merged_df
+
+
 def build_qbo_output_df(
     merged_df,
     items_receipt_col,
@@ -90,6 +170,8 @@ def build_qbo_output_df(
     price_col,
     name_col,
     variant_col=None,
+    mapped_sku_col=None,
+    mapped_product_service_col=None,
     receipt_prefix=1000,
 ):
     """Build the final QBO output dataframe with formatted dates and line totals."""
@@ -117,9 +199,20 @@ def build_qbo_output_df(
     )
     qbo_df['Sales Receipt Date'] = parsed_dates.dt.strftime('%m/%d/%Y')
     qbo_df['Customer'] = 'Cash Customer'
-    qbo_df['Product/Service'] = merged_df['line_description']
+
+    if mapped_product_service_col is not None and mapped_product_service_col in merged_df.columns:
+        product_service_series = merged_df[mapped_product_service_col].replace('', pd.NA).fillna(merged_df[sku_col])
+    else:
+        product_service_series = merged_df[sku_col]
+
+    if mapped_sku_col is not None and mapped_sku_col in merged_df.columns:
+        sku_series = merged_df[mapped_sku_col].replace('', pd.NA).fillna(merged_df[sku_col])
+    else:
+        sku_series = merged_df[sku_col]
+
+    qbo_df['Product/Service'] = product_service_series
     qbo_df['Description'] = merged_df['line_description']
-    qbo_df['SKU'] = merged_df[sku_col]
+    qbo_df['SKU'] = sku_series
     qbo_df['Qty'] = merged_df[quantity_col]
     qbo_df['Rate'] = merged_df[price_col]
     qbo_df['Total'] = (
@@ -140,6 +233,14 @@ if itemized_file and receipts_file:
         receipt_aliases = ['Receipt no.', 'Receipt #', 'Receipt']
         items_df = standardize_dataframe_columns(load_excel_with_flexible_headers(itemized_file, 'Receipt number', aliases=receipt_aliases))
         receipts_df = standardize_dataframe_columns(load_excel_with_flexible_headers(receipts_file, 'Receipt number', aliases=receipt_aliases))
+
+        reference_map = None
+        if reference_file is not None:
+            try:
+                reference_df = load_reference_file(reference_file)
+                reference_map = build_reference_map(reference_df)
+            except Exception as e:
+                pd_stream.error(f"❌ Reference mapping file could not be loaded: {e}")
 
         payment_col = find_column(receipts_df, ['payment method', 'payment type', 'payment'])
         sku_col = find_column(items_df, ['sku', 'item number', 'item code', 'item', 'product', 'product/service'])
@@ -185,6 +286,13 @@ if itemized_file and receipts_file:
                     if name_col is None or date_col is None or quantity_col is None or price_col is None:
                         pd_stream.error("❌ The itemized sales file is missing one or more required columns: Name, Date, Quantity, or Price.")
                     else:
+                        if reference_map is not None:
+                            merged_df = apply_reference_mapping(
+                                merged_df,
+                                reference_map,
+                                sku_col=sku_col,
+                            )
+
                         qbo_df = build_qbo_output_df(
                             merged_df,
                             items_receipt_col,
@@ -194,8 +302,25 @@ if itemized_file and receipts_file:
                             price_col,
                             name_col,
                             variant_col,
+                            mapped_sku_col='mapped_sku' if reference_map is not None else None,
+                            mapped_product_service_col='mapped_product_service' if reference_map is not None else None,
                             receipt_prefix=receipt_prefix,
                         )
+
+                        if reference_map is not None and 'reference_lookup_key' in merged_df.columns:
+                            unmatched_keys = merged_df.loc[
+                                merged_df['reference_lookup_key'].notna() &
+                                merged_df['mapped_sku'].isna() &
+                                merged_df['mapped_product_service'].isna(),
+                                'reference_lookup_key'
+                            ].astype(str).unique()
+                            if len(unmatched_keys) > 0:
+                                sample_keys = ', '.join(unmatched_keys[:10])
+                                pd_stream.warning(
+                                    f"⚠️ {len(unmatched_keys)} reference key(s) were not found in the mapping file. "
+                                    "Original SKU values were used for those rows. "
+                                    f"Missing keys: {sample_keys}{'...' if len(unmatched_keys) > 10 else ''}"
+                                )
 
                         date_series = merged_df[date_col]
                         missing_date_mask = (

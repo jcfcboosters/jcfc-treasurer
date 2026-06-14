@@ -35,6 +35,12 @@ A Streamlit app for converting PayPal cash sales reports into a QuickBooks Onlin
 - The app reads Excel contents with `openpyxl`
 - Output file in CSV format required by QuickBooks Online (QBO)
 
+## Optional reference Excel lookup
+
+- You can upload an optional reference Excel file to map a SKU to the desired QBO output values.
+- The reference file should include a SKU column, and may also include target columns such as `QBO SKU`, `SKU`, `Product/Service`, or `Name`.
+- If a row has a mapped SKU or product/service value, the app will use those values in the final output instead of the original raw SKU.
+
 ## Notes
 
 - The app now runs directly from `QBO-cash-import.py`
