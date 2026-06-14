@@ -14,6 +14,13 @@ pd_stream.markdown("---")
 pd_stream.subheader("Step 1: Upload PayPal Excel Exports")
 itemized_file = pd_stream.file_uploader("Upload 'PayPal-POS-Raw-Data-Report' (.xlsx)", type=["xlsx"])
 receipts_file = pd_stream.file_uploader("Upload 'PayPal-POS-Receipts-Report' (.xlsx)", type=["xlsx"])
+receipt_prefix = int(pd_stream.number_input(
+    "Receipt prefix start",
+    min_value=0,
+    value=1000,
+    step=1,
+    help="Unique line prefix for each Sales Receipt No. in the export."
+))
 
 def load_excel_with_flexible_headers(uploaded_file, target_column, aliases=None):
     """
@@ -83,6 +90,7 @@ def build_qbo_output_df(
     price_col,
     name_col,
     variant_col=None,
+    receipt_prefix=1000,
 ):
     """Build the final QBO output dataframe with formatted dates and line totals."""
     merged_df = merged_df.copy()
@@ -98,22 +106,29 @@ def build_qbo_output_df(
     )
 
     qbo_df = pd.DataFrame()
-    qbo_df['Sales Receipt No.'] = merged_df[items_receipt_col]
-    qbo_df['Transaction Date'] = pd.to_datetime(
+    original_receipts = merged_df[items_receipt_col].astype(str)
+    qbo_df['Sales Receipt No.'] = [
+        f"{receipt_prefix + idx}-{receipt}"
+        for idx, receipt in enumerate(original_receipts)
+    ]
+    parsed_dates = pd.to_datetime(
         merged_df[date_col],
         errors='coerce',
-    ).dt.strftime('%Y-%m-%d')
+    )
+    qbo_df['Sales Receipt Date'] = parsed_dates.dt.strftime('%m/%d/%Y')
     qbo_df['Customer'] = 'Cash Customer'
-    qbo_df['Product/Service'] = merged_df[sku_col]
+    qbo_df['Product/Service'] = merged_df['line_description']
     qbo_df['Description'] = merged_df['line_description']
-    qbo_df['Quantity'] = merged_df[quantity_col]
+    qbo_df['SKU'] = merged_df[sku_col]
+    qbo_df['Qty'] = merged_df[quantity_col]
     qbo_df['Rate'] = merged_df[price_col]
     qbo_df['Total'] = (
-        pd.to_numeric(qbo_df['Quantity'], errors='coerce') *
+        pd.to_numeric(qbo_df['Qty'], errors='coerce') *
         pd.to_numeric(qbo_df['Rate'], errors='coerce')
     )
     qbo_df['Deposit To'] = 'Undeposited Funds'
     qbo_df['Payment Method'] = 'Cash'
+    qbo_df['Ref No.'] = original_receipts
     return qbo_df
 
 if itemized_file and receipts_file:
@@ -179,20 +194,53 @@ if itemized_file and receipts_file:
                             price_col,
                             name_col,
                             variant_col,
+                            receipt_prefix=receipt_prefix,
                         )
 
-                    qbo_df = qbo_df.dropna(subset=['Sales Receipt No.', 'Product/Service'])
+                        date_series = merged_df[date_col]
+                        missing_date_mask = (
+                            date_series.isna() |
+                            date_series.astype(str).str.strip().eq('')
+                        )
+                        invalid_date_mask = (
+                            pd.to_datetime(date_series, errors='coerce').isna() &
+                            ~missing_date_mask
+                        )
+
+                        if missing_date_mask.any():
+                            missing_receipts = merged_df.loc[missing_date_mask, items_receipt_col].astype(str).unique()
+                            missing_sample = ', '.join(missing_receipts[:10])
+                            pd_stream.warning(
+                                f"⚠️ Found {missing_date_mask.sum()} rows with missing dates. "
+                                f"Receipt IDs: {missing_sample}{'...' if len(missing_receipts) > 10 else ''}. "
+                                "Those rows have been removed from the export."
+                            )
+
+                        if invalid_date_mask.any():
+                            invalid_receipts = merged_df.loc[invalid_date_mask, items_receipt_col].astype(str).unique()
+                            invalid_sample = ', '.join(invalid_receipts[:10])
+                            pd_stream.warning(
+                                f"⚠️ Found {invalid_date_mask.sum()} rows with invalid dates. "
+                                f"Receipt IDs: {invalid_sample}{'...' if len(invalid_receipts) > 10 else ''}. "
+                                "Those rows have been removed from the export."
+                            )
+
+                        invalid_date_rows = missing_date_mask | invalid_date_mask
+                        if invalid_date_rows.any():
+                            qbo_df = qbo_df.loc[~invalid_date_rows].copy()
+
+                        qbo_df = qbo_df.dropna(subset=['Sales Receipt No.', 'Product/Service'])
 
                     if qbo_df.empty:
                         pd_stream.warning("⚠️ Line items matching cash transactions don't have valid SKU codes.")
                     else:
                         pd_stream.success(f"🎉 Success! Found {len(qbo_df)} itemized cash lines.")
                         pd_stream.dataframe(qbo_df.head(10), height=420)
-                        pd_stream.caption("Scroll inside the table preview to view all output columns.")
+                        pd_stream.caption("Scroll inside the table preview to view all output columns and verify Sales Receipt Date formatting.")
 
                         output_format = pd_stream.radio(
                             "Choose output file type for download",
-                            ["XLSX", "CSV"],
+                            ["CSV", "XLSX"],
                             index=0,
                             horizontal=True,
                         )
@@ -204,13 +252,12 @@ if itemized_file and receipts_file:
                             download_data = output_data.getvalue()
                             mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                             extension = "xlsx"
-                            label = "📥 Download Clean QuickBooks XLSX"
                         else:
                             download_data = qbo_df.to_csv(index=False).encode('utf-8')
                             mime = "text/csv"
                             extension = "csv"
-                            label = "📥 Download Clean QuickBooks CSV"
 
+                        label = f"Download QuickBooks cash sales ({output_format})"
                         output_filename = f"qbo_cash_import.{extension}"
                         if "-" in itemized_file.name:
                             parts = itemized_file.name.replace(".xlsx", "").split("-")

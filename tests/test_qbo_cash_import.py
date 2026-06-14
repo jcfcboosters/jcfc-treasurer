@@ -75,6 +75,27 @@ def test_load_excel_with_flexible_headers_accepts_receipt_number_aliases():
     assert result.iloc[0]['Receipt #'] == 3
 
 
+def test_load_excel_with_flexible_headers_finds_header_row_with_metadata_rows():
+    raw_df = pd.DataFrame([
+        ['meta', 'meta', 'meta'],
+        ['more metadata', 'more metadata', 'more metadata'],
+        ['', '', ''],
+        ['Receipt number', 'Date', 'SKU'],
+        [4, '2024-01-04', 'SKU4'],
+    ])
+
+    with patch.object(qbo_cash_import.pd, 'read_excel', return_value=raw_df):
+        result = qbo_cash_import.load_excel_with_flexible_headers('fake.xlsx', 'Receipt number')
+
+    assert list(result.columns) == ['Receipt number', 'Date', 'SKU']
+    assert result.shape == (1, 3)
+    assert result.iloc[0].to_dict() == {
+        'Receipt number': 4,
+        'Date': '2024-01-04',
+        'SKU': 'SKU4',
+    }
+
+
 def test_standardize_dataframe_columns_lowercases_and_strips_headers():
     df = pd.DataFrame({
         '  Receipt number  ': [1],
@@ -115,15 +136,78 @@ def test_build_qbo_output_df_formats_date_and_includes_total():
         variant_col=None,
     )
 
-    assert list(qbo_df.columns)[:8] == [
+    assert list(qbo_df.columns) == [
         'Sales Receipt No.',
-        'Transaction Date',
+        'Sales Receipt Date',
         'Customer',
         'Product/Service',
         'Description',
-        'Quantity',
+        'SKU',
+        'Qty',
         'Rate',
         'Total',
+        'Deposit To',
+        'Payment Method',
+        'Ref No.',
     ]
-    assert qbo_df['Transaction Date'].tolist() == ['2024-01-01', '2024-01-02']
+    assert qbo_df['Sales Receipt No.'].tolist() == ['1000-1', '1001-2']
+    assert qbo_df['Sales Receipt Date'].tolist() == ['01/01/2024', '01/02/2024']
+    assert qbo_df['SKU'].tolist() == ['SKU1', 'SKU2']
+    assert qbo_df['Product/Service'].tolist() == qbo_df['Description'].tolist()
+    assert qbo_df['Ref No.'].tolist() == ['1', '2']
     assert qbo_df['Total'].tolist() == [20.0, 46.5]
+
+
+def test_build_qbo_output_df_includes_variant_in_description():
+    merged_df = pd.DataFrame({
+        'receipt number': [1],
+        'date': ['2024-01-01'],
+        'sku': ['SKU1'],
+        'name': ['Widget'],
+        'variant': ['Large'],
+        'quantity': [1],
+        'rate': [10.00],
+    })
+
+    qbo_df = qbo_cash_import.build_qbo_output_df(
+        merged_df,
+        items_receipt_col='receipt number',
+        sku_col='sku',
+        date_col='date',
+        quantity_col='quantity',
+        price_col='rate',
+        name_col='name',
+        variant_col='variant',
+    )
+
+    assert qbo_df['Description'].tolist() == ['Widget (Large)']
+    assert qbo_df['Sales Receipt No.'].tolist() == ['1000-1']
+    assert qbo_df['Ref No.'].tolist() == ['1']
+
+
+def test_build_qbo_output_df_uses_custom_prefix_for_sales_receipt_no():
+    merged_df = pd.DataFrame({
+        'receipt number': [10, 20],
+        'date': ['2024-01-01', '2024-01-02'],
+        'sku': ['SKU1', 'SKU2'],
+        'name': ['Widget', 'Gadget'],
+        'quantity': [1, 1],
+        'rate': [5.00, 7.00],
+    })
+
+    qbo_df = qbo_cash_import.build_qbo_output_df(
+        merged_df,
+        items_receipt_col='receipt number',
+        sku_col='sku',
+        date_col='date',
+        quantity_col='quantity',
+        price_col='rate',
+        name_col='name',
+        variant_col=None,
+        receipt_prefix=5000,
+    )
+
+    assert qbo_df['Sales Receipt No.'].tolist() == ['5000-10', '5001-20']
+    assert qbo_df['SKU'].tolist() == ['SKU1', 'SKU2']
+    assert qbo_df['Product/Service'].tolist() == qbo_df['Description'].tolist()
+    assert qbo_df['Ref No.'].tolist() == ['10', '20']
