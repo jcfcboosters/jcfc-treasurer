@@ -28,11 +28,13 @@ A Streamlit app for converting PayPal cash sales reports into a QuickBooks Onlin
 
 ## Supported file format
 
-- Upload `.xlsx` files only
+- Upload `.xlsx` files only for the main PayPal reports
+- Optional reference mapping files may be `.xls` or `.xlsx`
 - Expected report names are:
   - "PayPal-POS-Raw-Data-Report-START-END.xlsx"
   - "PayPal-POS-Receipts-Report-START-END.xlsx"
-- The app reads Excel contents with `openpyxl`
+- The app reads `.xlsx` files with `openpyxl`
+- `.xls` support for reference lookup requires `xlrd>=2.0.1`
 - Output file in CSV format required by QuickBooks Online (QBO)
 
 ## Optional reference Excel lookup

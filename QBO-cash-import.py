@@ -91,7 +91,20 @@ def load_reference_file(uploaded_file):
     """
     Load an Excel reference mapping file and normalize its column headers.
     """
-    reference_df = pd.read_excel(uploaded_file)
+    file_name = getattr(uploaded_file, 'name', None) or str(uploaded_file)
+    engine = 'xlrd' if str(file_name).lower().endswith('.xls') else None
+
+    try:
+        if engine is not None:
+            reference_df = pd.read_excel(uploaded_file, engine=engine)
+        else:
+            reference_df = pd.read_excel(uploaded_file)
+    except ImportError as exc:
+        raise ImportError(
+            "Could not load the reference Excel file. `.xls` support requires `xlrd>=2.0.1`. "
+            "Install it with `pip install xlrd>=2.0.1`."
+        ) from exc
+
     return standardize_dataframe_columns(reference_df)
 
 

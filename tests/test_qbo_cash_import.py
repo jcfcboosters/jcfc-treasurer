@@ -288,6 +288,17 @@ def test_build_reference_map_loads_actual_xls_product_service_sample():
     assert reference_map['jcfc-beanie']['product_service'] == 'Accessories:JCFC Beanie'
 
 
+def test_load_reference_file_raises_when_xls_engine_missing():
+    class DummyFile:
+        name = 'mapping.xls'
+
+    with patch.object(qbo_cash_import.pd, 'read_excel', side_effect=ImportError("No module named 'xlrd'")):
+        with pytest.raises(ImportError) as excinfo:
+            qbo_cash_import.load_reference_file(DummyFile())
+
+    assert "`.xls` support requires `xlrd>=2.0.1`" in str(excinfo.value)
+
+
 def test_apply_reference_mapping_creates_mapped_columns():
     merged_df = pd.DataFrame({
         'category': ['Apparel', 'Drink'],
